@@ -1,10 +1,14 @@
 import pygame
 import sys
+import asyncio
+import websockets
+import json
 import math
 import os
-import random
+import threading
+from dataclasses import dataclass
 
-# Inicjalizacja Pygame i Mixera
+# Inicjalizacja Pygame
 pygame.init()
 try:
     pygame.mixer.init()
@@ -12,9 +16,9 @@ except pygame.error:
     pass
 
 # Ustawienia ekranu
-WIDTH, HEIGHT = 800, 600
+WIDTH, HEIGHT = 1200, 800
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption("Miziewicz The Game")
+pygame.display.set_caption("Miziewicz The Game - Multiplayer")
 clock = pygame.time.Clock()
 
 # Kolory
@@ -204,167 +208,197 @@ class Bullet:
         else:
             pygame.draw.circle(surface, YELLOW, (int(self.x), int(self.y)), self.radius)
 
-def main():
-    player = Miziewicz()
-    boss = GrubyMocko()
-    bullets = []
+def start_multiplayer_game(server_ip, server_port, player_name):
+    """Główna pętla klienta multiplayer"""
     
-    last_shot_time = 0
-    shoot_delay = 200  # Opóźnienie między strzałami w milisekundach
-
-    running = True
-    game_over = False
-    message = ""
-    in_menu = True
-    dragging_slider = None
-    music_slider_rect = pygame.Rect(200, 240, 400, 20)
-    sfx_slider_rect = pygame.Rect(200, 310, 400, 20)
-    music_handle_rect = pygame.Rect(0, 0, 16, 32)
-    sfx_handle_rect = pygame.Rect(0, 0, 16, 32)
-    music_handle_rect.center = (music_slider_rect.left + int(music_volume * music_slider_rect.width), music_slider_rect.centery)
-    sfx_handle_rect.center = (sfx_slider_rect.left + int(sfx_volume * sfx_slider_rect.width), sfx_slider_rect.centery)
-    start_button = pygame.Rect(WIDTH // 2 - 100, 380, 200, 50)
-
-    while running:
-        current_time = pygame.time.get_ticks()
-        screen.fill(WHITE)
-
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                running = False
-
-            if in_menu:
-                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                    if start_button.collidepoint(event.pos):
-                        in_menu = False
-                        game_over = False
-                        message = ""
-                        player = Miziewicz()
-                        boss = GrubyMocko()
-                        bullets = []
-                        last_shot_time = 0
-                    elif music_slider_rect.collidepoint(event.pos) or music_handle_rect.collidepoint(event.pos):
-                        dragging_slider = "music"
-                    elif sfx_slider_rect.collidepoint(event.pos) or sfx_handle_rect.collidepoint(event.pos):
-                        dragging_slider = "sfx"
-                elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
-                    dragging_slider = None
-                elif event.type == pygame.MOUSEMOTION and dragging_slider:
-                    if dragging_slider == "music":
-                        mx = max(music_slider_rect.left, min(event.pos[0], music_slider_rect.right))
-                        set_music_volume((mx - music_slider_rect.left) / music_slider_rect.width)
-                        music_handle_rect.centerx = mx
-                    elif dragging_slider == "sfx":
-                        mx = max(sfx_slider_rect.left, min(event.pos[0], sfx_slider_rect.right))
-                        set_sfx_volume((mx - sfx_slider_rect.left) / sfx_slider_rect.width)
-                        sfx_handle_rect.centerx = mx
-            else:
-                if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-                    in_menu = True
-
-        if in_menu:
-            title = font.render("Miziewicz The Game", True, BLACK)
-            title_rect = title.get_rect(center=(WIDTH // 2, 110))
-            screen.blit(title, title_rect)
-
-            info = small_font.render("Ustaw głośność muzyki i efektów", True, BLACK)
-            info_rect = info.get_rect(center=(WIDTH // 2, 150))
-            screen.blit(info, info_rect)
-
-            pygame.draw.rect(screen, BLACK, music_slider_rect, 2)
-            music_filled = pygame.Rect(music_slider_rect.left, music_slider_rect.top, int(music_volume * music_slider_rect.width), music_slider_rect.height)
-            pygame.draw.rect(screen, GREEN, music_filled)
-            music_handle_rect.center = (music_slider_rect.left + int(music_volume * music_slider_rect.width), music_slider_rect.centery)
-            pygame.draw.rect(screen, BLACK, music_handle_rect)
-            music_label = small_font.render(f"Muzyka: {int(music_volume * 100)}%", True, BLACK)
-            screen.blit(music_label, (music_slider_rect.left, music_slider_rect.top - 25))
-
-            pygame.draw.rect(screen, BLACK, sfx_slider_rect, 2)
-            sfx_filled = pygame.Rect(sfx_slider_rect.left, sfx_slider_rect.top, int(sfx_volume * sfx_slider_rect.width), sfx_slider_rect.height)
-            pygame.draw.rect(screen, GREEN, sfx_filled)
-            sfx_handle_rect.center = (sfx_slider_rect.left + int(sfx_volume * sfx_slider_rect.width), sfx_slider_rect.centery)
-            pygame.draw.rect(screen, BLACK, sfx_handle_rect)
-            sfx_label = small_font.render(f"SFX: {int(sfx_volume * 100)}%", True, BLACK)
-            screen.blit(sfx_label, (sfx_slider_rect.left, sfx_slider_rect.top - 25))
-
-            pygame.draw.rect(screen, BLUE, start_button)
-            start_text = font.render("START", True, WHITE)
-            start_text_rect = start_text.get_rect(center=start_button.center)
-            screen.blit(start_text, start_text_rect)
-
-            controls_text = small_font.render("Spacja = strzał, ESC = menu", True, BLACK)
-            controls_rect = controls_text.get_rect(center=(WIDTH // 2, 460))
-            screen.blit(controls_text, controls_rect)
-        else:
-            keys = pygame.key.get_pressed()
-            if not game_over:
-                player.move(keys)
-
-                if keys[pygame.K_SPACE] and current_time - last_shot_time > shoot_delay:
-                    bullets.append(Bullet(player.x + player.size // 2, player.y))
+    async def run_game():
+        async with websockets.connect(f"ws://{server_ip}:{server_port}", ping_interval=None) as websocket:
+            # Wysłanie żądania dołączenia
+            await websocket.send(json.dumps({
+                "type": "join",
+                "name": player_name
+            }))
+            
+            # Odbierz dane gracza
+            join_msg = json.loads(await websocket.recv())
+            if join_msg["type"] != "join_success":
+                print("Błąd: Nie udało się dołączyć do gry")
+                return
+            
+            player_id = join_msg["player_id"]
+            players = join_msg["players"]
+            boss = join_msg["boss"]
+            arena_width = join_msg["arena_width"]
+            arena_height = join_msg["arena_height"]
+            
+            camera_x = 0
+            camera_y = 0
+            last_shot_time = 0
+            shoot_delay = 200
+            running = True
+            in_menu = False
+            game_state = "playing"
+            
+            # Nasłuchiwanie wiadomości od serwera w osobnym wątku
+            async def listen_server():
+                nonlocal players, boss, game_state
+                try:
+                    async for message in websocket:
+                        data = json.loads(message)
+                        if data["type"] == "game_state":
+                            players = data["players"]
+                            boss = data["boss"]
+                            game_state = data["game_state"]
+                except:
+                    pass
+            
+            asyncio.create_task(listen_server())
+            
+            # Pętla gry
+            while running:
+                current_time = pygame.time.get_ticks()
+                screen.fill(WHITE)
+                
+                # Obsługa zdarzeń
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT:
+                        running = False
+                    elif event.type == pygame.KEYDOWN:
+                        if event.key == pygame.K_ESCAPE:
+                            running = False
+                
+                # Wejście gracza
+                keys = pygame.key.get_pressed()
+                move = None
+                if keys[pygame.K_LEFT] or keys[pygame.K_a]:
+                    move = "left"
+                elif keys[pygame.K_RIGHT] or keys[pygame.K_d]:
+                    move = "right"
+                elif keys[pygame.K_UP] or keys[pygame.K_w]:
+                    move = "up"
+                elif keys[pygame.K_DOWN] or keys[pygame.K_s]:
+                    move = "down"
+                
+                shoot = keys[pygame.K_SPACE] and current_time - last_shot_time > shoot_delay
+                if shoot:
                     last_shot_time = current_time
-                    if shoot_sound:
-                        shoot_sound.play()
+                
+                # Wyślij dane do serwera
+                try:
+                    await websocket.send(json.dumps({
+                        "type": "input",
+                        "move": move,
+                        "shoot": shoot
+                    }))
+                except:
+                    running = False
+                
+                # Rysowanie
+                if player_id in players:
+                    my_player = players[player_id]
+                    camera_x = my_player["x"] - WIDTH // 2
+                    camera_y = my_player["y"] - HEIGHT // 2
+                    camera_x = max(0, min(arena_width - WIDTH, camera_x))
+                    camera_y = max(0, min(arena_height - HEIGHT, camera_y))
+                    
+                    # Rysuj graczy
+                    for pid, player in players.items():
+                        px = player["x"] - camera_x
+                        py = player["y"] - camera_y
+                        
+                        if -50 < px < WIDTH + 50 and -50 < py < HEIGHT + 50:
+                            pygame.draw.rect(screen, player["color"], (px, py, 40, 40))
+                            
+                            # Pasek zdrowia
+                            pygame.draw.rect(screen, RED, (px, py - 15, 40, 8))
+                            hw = (player["health"] / player["max_health"]) * 40
+                            pygame.draw.rect(screen, GREEN, (px, py - 15, hw, 8))
+                            
+                            # Nazwa
+                            name_text = tiny_font.render(player["name"], True, BLACK)
+                            screen.blit(name_text, (px - 10, py - 30))
+                            
+                            # Pociski
+                            for bullet in player["bullets"]:
+                                bx = bullet["x"] - camera_x
+                                by = bullet["y"] - camera_y
+                                if -10 < bx < WIDTH + 10 and -10 < by < HEIGHT + 10:
+                                    if ammo_img:
+                                        img_rect = ammo_img.get_rect(center=(int(bx), int(by)))
+                                        screen.blit(ammo_img, img_rect)
+                                    else:
+                                        pygame.draw.circle(screen, YELLOW, (int(bx), int(by)), 5)
+                    
+                    # Rysuj bossa
+                    bx = boss["x"] - camera_x
+                    by = boss["y"] - camera_y
+                    
+                    if -150 < bx < WIDTH + 150 and -150 < by < HEIGHT + 150:
+                        pygame.draw.rect(screen, RED, (bx, by, boss["size"], boss["size"]))
+                        
+                        pygame.draw.rect(screen, BLACK, (bx, by - 25, boss["size"], 15))
+                        bhw = (boss["health"] / boss["max_health"]) * boss["size"]
+                        pygame.draw.rect(screen, GREEN, (bx, by - 25, bhw, 15))
+                        
+                        boss_label = small_font.render("GRUBY MOĆKO", True, BLACK)
+                        screen.blit(boss_label, (bx - 30, by - 55))
+                    
+                    # UI
+                    pygame.draw.rect(screen, GRAY, (10, 10, 300, 120), 2)
+                    
+                    for i, (pid, player) in enumerate(players.items()):
+                        y_offset = 20 + i * 25
+                        player_ui = tiny_font.render(f"{player['name']}: {player['health']}/{player['max_health']}", True, player["color"])
+                        screen.blit(player_ui, (20, y_offset))
+                    
+                    # Koniec gry
+                    if game_state == "game_over":
+                        overlay = pygame.Surface((WIDTH, HEIGHT))
+                        overlay.set_alpha(200)
+                        overlay.fill(BLACK)
+                        screen.blit(overlay, (0, 0))
+                        
+                        if boss["health"] <= 0:
+                            msg = "ZWYCIĘSTWO!"
+                            color = GREEN
+                        else:
+                            msg = "PORAŻKA!"
+                            color = RED
+                        
+                        end_text = font.render(msg, True, color)
+                        end_rect = end_text.get_rect(center=(WIDTH // 2, HEIGHT // 2))
+                        screen.blit(end_text, end_rect)
+                
+                pygame.display.flip()
+                clock.tick(60)
+                await asyncio.sleep(0.001)
+    
+    asyncio.run(run_game())
 
-                boss.update(player.x, player.y)
+# Font dla UI
+tiny_font = pygame.font.SysFont("Arial", 14)
+GRAY = (100, 100, 100)
 
-                for bullet in bullets[:]:
-                    bullet.update()
-                    if bullet.y < 0:
-                        bullets.remove(bullet)
-                    elif bullet.rect.colliderect(boss.rect):
-                        boss.health -= 10
-                        play_random_sound(hit_sounds)
-                        if bullet in bullets:
-                            bullets.remove(bullet)
-
-                if player.rect.colliderect(boss.rect):
-                    previous_health = player.health
-                    player.health -= 2
-                    if player.health <= 0:
-                        player.health = 0
-                        game_over = True
-                        message = "PRZEGRAŁEŚ! GRUBY MOĆKO CIĘ ZMIAŻDŻYŁ!"
-                        if miziewicz_death_sound:
-                            miziewicz_death_sound.play()
-                    elif previous_health > 0:
-                        play_random_sound(player_hit_sounds)
-
-                if not game_over and boss.health <= 0:
-                    game_over = True
-                    message = "WYGRAŁEŚ! POKONAŁEŚ GRUBEGO MOĆKA!"
-                    if mocko_death_sound:
-                        mocko_death_sound.play()
-
-            player.draw(screen)
-            if boss.health > 0:
-                boss.draw(screen)
-
-            for bullet in bullets:
-                bullet.draw(screen)
-
-            if game_over:
-                text = font.render(message, True, BLACK)
-                text_rect = text.get_rect(center=(WIDTH // 2, HEIGHT // 2))
-                screen.blit(text, text_rect)
-
-                restart_text = small_font.render("Naciśnij 'R', aby zagrać ponownie", True, BLACK)
-                restart_rect = restart_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 + 50))
-                screen.blit(restart_text, restart_rect)
-
-                if keys[pygame.K_r]:
-                    player = Miziewicz()
-                    boss = GrubyMocko()
-                    bullets = []
-                    last_shot_time = 0
-                    game_over = False
-                    message = ""
-
-        pygame.display.flip()
-        clock.tick(60)
-
-    pygame.quit()
-    sys.exit()
+def main():
+    print("🎮 Miziewicz Multiplayer Client")
+    print("=====================================")
+    print("Podaj dane serwera:")
+    
+    # Domyślnie localhost
+    server_ip = input("IP serwera (domyślnie localhost): ").strip() or "localhost"
+    server_port = int(input("Port serwera (domyślnie 5000): ").strip() or "5000")
+    player_name = input("Twoja nazwa gracza: ").strip() or "Player"
+    
+    print(f"\n⏳ Łączenie z {server_ip}:{server_port}...")
+    print("Wciśnij ESC w grze, aby zakończyć.\n")
+    
+    try:
+        start_multiplayer_game(server_ip, server_port, player_name)
+    except Exception as e:
+        print(f"❌ Błąd: {e}")
+    finally:
+        pygame.quit()
+        sys.exit()
 
 if __name__ == "__main__":
     main()
