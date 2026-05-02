@@ -60,31 +60,6 @@ def load_sound(path):
         return None
 
 
-music_volume = 0.2
-sfx_volume = 0.2
-
-def set_music_volume(level):
-    global music_volume
-    music_volume = max(0.0, min(1.0, level))
-    try:
-        pygame.mixer.music.set_volume(music_volume)
-    except pygame.error:
-        pass
-
-def set_sfx_volume(level):
-    global sfx_volume
-    sfx_volume = max(0.0, min(1.0, level))
-    apply_volume_to_sounds()
-
-def apply_volume_to_sounds():
-    for sound in [shoot_sound] + hit_sounds + player_hit_sounds + [mocko_death_sound, miziewicz_death_sound]:
-        if sound:
-            try:
-                sound.set_volume(sfx_volume)
-            except pygame.error:
-                pass
-
-
 miziewicz_img = load_image("miziewicz.png", (40, 40))
 mocko_img = load_image("mocko.png", (100, 100))
 ammo_img = load_image("ammo.png", (24, 24))
@@ -102,13 +77,12 @@ player_hit_sounds = [
 ]
 mocko_death_sound = load_sound(os.path.join(MOCKO_DIR, "mockodeath.mp3"))
 miziewicz_death_sound = load_sound(os.path.join(MIZ_DIR, "miziewiczdeath.mp3"))
-apply_volume_to_sounds()
 
 music_path = os.path.join(SFX_DIR, "music.mp3")
 if os.path.isfile(music_path):
     try:
         pygame.mixer.music.load(music_path)
-        set_music_volume(music_volume)
+        pygame.mixer.music.set_volume(0.2)
         pygame.mixer.music.play(-1)
     except pygame.error:
         pass
@@ -202,15 +176,12 @@ class Bullet:
         self.rect.center = (self.x, self.y)
 
     def draw(self, surface):
-        if ammo_img:
-            img_rect = ammo_img.get_rect(center=(int(self.x), int(self.y)))
-            surface.blit(ammo_img, img_rect)
-        else:
-            pygame.draw.circle(surface, YELLOW, (int(self.x), int(self.y)), self.radius)
+        pygame.draw.circle(surface, YELLOW, (int(self.x), int(self.y)), self.radius)
 
 def start_multiplayer_game(server_ip, server_port, player_name):
     """Główna pętla klienta multiplayer"""
     
+<<<<<<< HEAD
     async def run_game():
         async with websockets.connect(f"ws://{server_ip}:{server_port}", ping_interval=None) as websocket:
             # Wysłanie żądania dołączenia
@@ -399,6 +370,102 @@ def main():
     finally:
         pygame.quit()
         sys.exit()
+=======
+    last_shot_time = 0
+    shoot_delay = 200  # Opóźnienie między strzałami w milisekundach
+
+    running = True
+    game_over = False
+    message = ""
+
+    while running:
+        current_time = pygame.time.get_ticks()
+        screen.fill(WHITE)
+
+        # Obsługa zdarzeń
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+
+        if not game_over:
+            keys = pygame.key.get_pressed()
+            player.move(keys)
+            
+            # Strzelanie (Spacja)
+            if keys[pygame.K_SPACE] and current_time - last_shot_time > shoot_delay:
+                bullets.append(Bullet(player.x + player.size // 2, player.y))
+                last_shot_time = current_time
+                if shoot_sound:
+                    shoot_sound.play()
+
+            boss.update(player.x, player.y)
+
+            # Aktualizacja pocisków
+            for bullet in bullets[:]:
+                bullet.update()
+                if bullet.y < 0:
+                    bullets.remove(bullet)
+                elif bullet.rect.colliderect(boss.rect):
+                    boss.health -= 10
+                    play_random_sound(hit_sounds)
+                    if bullet in bullets:
+                        bullets.remove(bullet)
+
+            # Kolizja Moćka z Miziewiczem
+            if player.rect.colliderect(boss.rect):
+                player.health -= 2
+                play_random_sound(player_hit_sounds)
+
+            # Sprawdzenie warunków wygranej / przegranej
+            if boss.health <= 0:
+                game_over = True
+                message = "WYGRAŁEŚ! POKONAŁEŚ GRUBEGO MOĆKA!"
+                if mocko_death_sound:
+                    mocko_death_sound.play()
+            elif player.health <= 0:
+                game_over = True
+                message = "PRZEGRAŁEŚ! GRUBY MOĆKO CIĘ ZMIAŻDŻYŁ!"
+                if miziewicz_death_sound:
+                    miziewicz_death_sound.play()
+
+        # Rysowanie elementów gry
+        player.draw(screen)
+        if boss.health > 0:
+            boss.draw(screen)
+            
+        for bullet in bullets:
+            bullet.draw(screen)
+
+        if ammo_img:
+            screen.blit(ammo_img, (20, 20))
+            ammo_label = small_font.render("STRZAŁY", True, BLACK)
+            screen.blit(ammo_label, (50, 20))
+
+        # Wyświetlanie napisów końcowych
+        if game_over:
+            text = font.render(message, True, BLACK)
+            text_rect = text.get_rect(center=(WIDTH // 2, HEIGHT // 2))
+            screen.blit(text, text_rect)
+            
+            restart_text = small_font.render("Naciśnij 'R', aby zagrać ponownie", True, BLACK)
+            restart_rect = restart_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 + 50))
+            screen.blit(restart_text, restart_rect)
+            
+            keys = pygame.key.get_pressed()
+            if keys[pygame.K_r]:
+                player = Miziewicz()
+                boss = GrubyMocko()
+                bullets = []
+                last_shot_time = 0
+                game_over = False
+                message = ""
+
+        pygame.display.flip()
+        clock.tick(60)
+
+    pygame.quit()
+    sys.exit()
+>>>>>>> parent of 3f5509b (Miziewicz 1.0.1)
 
 if __name__ == "__main__":
     main()
