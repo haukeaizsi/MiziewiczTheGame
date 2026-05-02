@@ -39,7 +39,8 @@ font = pygame.font.SysFont("Arial", 36)
 small_font = pygame.font.SysFont("Arial", 20)
 
 # Ścieżki do zasobów
-ASSET_DIR = os.path.join(os.path.dirname(__file__), "assets")
+base_path = getattr(sys, '_MEIPASS', os.path.dirname(__file__))
+ASSET_DIR = os.path.join(base_path, "assets")
 IMG_DIR = os.path.join(ASSET_DIR, "imgs")
 AUDIO_DIR = os.path.join(ASSET_DIR, "audios")
 SFX_DIR = os.path.join(AUDIO_DIR, "sfx")
