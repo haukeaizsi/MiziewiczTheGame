@@ -1,14 +1,10 @@
 import pygame
 import sys
-import asyncio
-import websockets
-import json
 import math
 import os
-import threading
-from dataclasses import dataclass
+import random
 
-# Inicjalizacja Pygame
+# Inicjalizacja Pygame i Mixera
 pygame.init()
 try:
     pygame.mixer.init()
@@ -16,9 +12,9 @@ except pygame.error:
     pass
 
 # Ustawienia ekranu
-WIDTH, HEIGHT = 1200, 800
+WIDTH, HEIGHT = 800, 600
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption("Miziewicz The Game - Multiplayer")
+pygame.display.set_caption("Miziewicz The Game")
 clock = pygame.time.Clock()
 
 # Kolory
@@ -28,6 +24,15 @@ RED = (200, 0, 0)
 BLUE = (0, 0, 255)
 YELLOW = (255, 255, 0)
 GREEN = (0, 200, 0)
+
+# Stany gry
+MENU = 0
+GAME = 1
+SETTINGS = 2
+
+# Ustawienia audio
+music_volume = 0.2
+sound_volume = 1.0
 
 # Czcionki
 font = pygame.font.SysFont("Arial", 36)
@@ -78,11 +83,14 @@ player_hit_sounds = [
 mocko_death_sound = load_sound(os.path.join(MOCKO_DIR, "mockodeath.mp3"))
 miziewicz_death_sound = load_sound(os.path.join(MIZ_DIR, "miziewiczdeath.mp3"))
 
+win_sound = load_sound(os.path.join(SFX_DIR, "win.mp3"))
+lose_sound = load_sound(os.path.join(SFX_DIR, "lose.mp3"))
+
 music_path = os.path.join(SFX_DIR, "music.mp3")
 if os.path.isfile(music_path):
     try:
         pygame.mixer.music.load(music_path)
-        pygame.mixer.music.set_volume(0.2)
+        pygame.mixer.music.set_volume(music_volume)
         pygame.mixer.music.play(-1)
     except pygame.error:
         pass
@@ -91,7 +99,9 @@ if os.path.isfile(music_path):
 def play_random_sound(sounds):
     sounds = [sound for sound in sounds if sound]
     if sounds:
-        random.choice(sounds).play()
+        sound = random.choice(sounds)
+        sound.set_volume(sound_volume)
+        sound.play()
 
 class Miziewicz:
     def __init__(self):
@@ -176,296 +186,227 @@ class Bullet:
         self.rect.center = (self.x, self.y)
 
     def draw(self, surface):
-        pygame.draw.circle(surface, YELLOW, (int(self.x), int(self.y)), self.radius)
+        if ammo_img:
+            surface.blit(ammo_img, (self.x - ammo_img.get_width() // 2, self.y - ammo_img.get_height() // 2))
+        else:
+            pygame.draw.circle(surface, YELLOW, (int(self.x), int(self.y)), self.radius)
 
-def start_multiplayer_game(server_ip, server_port, player_name):
-    """Główna pętla klienta multiplayer"""
-    
-<<<<<<< HEAD
-    async def run_game():
-        async with websockets.connect(f"ws://{server_ip}:{server_port}", ping_interval=None) as websocket:
-            # Wysłanie żądania dołączenia
-            await websocket.send(json.dumps({
-                "type": "join",
-                "name": player_name
-            }))
-            
-            # Odbierz dane gracza
-            join_msg = json.loads(await websocket.recv())
-            if join_msg["type"] != "join_success":
-                print("Błąd: Nie udało się dołączyć do gry")
-                return
-            
-            player_id = join_msg["player_id"]
-            players = join_msg["players"]
-            boss = join_msg["boss"]
-            arena_width = join_msg["arena_width"]
-            arena_height = join_msg["arena_height"]
-            
-            camera_x = 0
-            camera_y = 0
-            last_shot_time = 0
-            shoot_delay = 200
-            running = True
-            in_menu = False
-            game_state = "playing"
-            
-            # Nasłuchiwanie wiadomości od serwera w osobnym wątku
-            async def listen_server():
-                nonlocal players, boss, game_state
-                try:
-                    async for message in websocket:
-                        data = json.loads(message)
-                        if data["type"] == "game_state":
-                            players = data["players"]
-                            boss = data["boss"]
-                            game_state = data["game_state"]
-                except:
-                    pass
-            
-            asyncio.create_task(listen_server())
-            
-            # Pętla gry
-            while running:
-                current_time = pygame.time.get_ticks()
-                screen.fill(WHITE)
-                
-                # Obsługa zdarzeń
-                for event in pygame.event.get():
-                    if event.type == pygame.QUIT:
-                        running = False
-                    elif event.type == pygame.KEYDOWN:
-                        if event.key == pygame.K_ESCAPE:
-                            running = False
-                
-                # Wejście gracza
-                keys = pygame.key.get_pressed()
-                move = None
-                if keys[pygame.K_LEFT] or keys[pygame.K_a]:
-                    move = "left"
-                elif keys[pygame.K_RIGHT] or keys[pygame.K_d]:
-                    move = "right"
-                elif keys[pygame.K_UP] or keys[pygame.K_w]:
-                    move = "up"
-                elif keys[pygame.K_DOWN] or keys[pygame.K_s]:
-                    move = "down"
-                
-                shoot = keys[pygame.K_SPACE] and current_time - last_shot_time > shoot_delay
-                if shoot:
-                    last_shot_time = current_time
-                
-                # Wyślij dane do serwera
-                try:
-                    await websocket.send(json.dumps({
-                        "type": "input",
-                        "move": move,
-                        "shoot": shoot
-                    }))
-                except:
-                    running = False
-                
-                # Rysowanie
-                if player_id in players:
-                    my_player = players[player_id]
-                    camera_x = my_player["x"] - WIDTH // 2
-                    camera_y = my_player["y"] - HEIGHT // 2
-                    camera_x = max(0, min(arena_width - WIDTH, camera_x))
-                    camera_y = max(0, min(arena_height - HEIGHT, camera_y))
-                    
-                    # Rysuj graczy
-                    for pid, player in players.items():
-                        px = player["x"] - camera_x
-                        py = player["y"] - camera_y
-                        
-                        if -50 < px < WIDTH + 50 and -50 < py < HEIGHT + 50:
-                            pygame.draw.rect(screen, player["color"], (px, py, 40, 40))
-                            
-                            # Pasek zdrowia
-                            pygame.draw.rect(screen, RED, (px, py - 15, 40, 8))
-                            hw = (player["health"] / player["max_health"]) * 40
-                            pygame.draw.rect(screen, GREEN, (px, py - 15, hw, 8))
-                            
-                            # Nazwa
-                            name_text = tiny_font.render(player["name"], True, BLACK)
-                            screen.blit(name_text, (px - 10, py - 30))
-                            
-                            # Pociski
-                            for bullet in player["bullets"]:
-                                bx = bullet["x"] - camera_x
-                                by = bullet["y"] - camera_y
-                                if -10 < bx < WIDTH + 10 and -10 < by < HEIGHT + 10:
-                                    if ammo_img:
-                                        img_rect = ammo_img.get_rect(center=(int(bx), int(by)))
-                                        screen.blit(ammo_img, img_rect)
-                                    else:
-                                        pygame.draw.circle(screen, YELLOW, (int(bx), int(by)), 5)
-                    
-                    # Rysuj bossa
-                    bx = boss["x"] - camera_x
-                    by = boss["y"] - camera_y
-                    
-                    if -150 < bx < WIDTH + 150 and -150 < by < HEIGHT + 150:
-                        pygame.draw.rect(screen, RED, (bx, by, boss["size"], boss["size"]))
-                        
-                        pygame.draw.rect(screen, BLACK, (bx, by - 25, boss["size"], 15))
-                        bhw = (boss["health"] / boss["max_health"]) * boss["size"]
-                        pygame.draw.rect(screen, GREEN, (bx, by - 25, bhw, 15))
-                        
-                        boss_label = small_font.render("GRUBY MOĆKO", True, BLACK)
-                        screen.blit(boss_label, (bx - 30, by - 55))
-                    
-                    # UI
-                    pygame.draw.rect(screen, GRAY, (10, 10, 300, 120), 2)
-                    
-                    for i, (pid, player) in enumerate(players.items()):
-                        y_offset = 20 + i * 25
-                        player_ui = tiny_font.render(f"{player['name']}: {player['health']}/{player['max_health']}", True, player["color"])
-                        screen.blit(player_ui, (20, y_offset))
-                    
-                    # Koniec gry
-                    if game_state == "game_over":
-                        overlay = pygame.Surface((WIDTH, HEIGHT))
-                        overlay.set_alpha(200)
-                        overlay.fill(BLACK)
-                        screen.blit(overlay, (0, 0))
-                        
-                        if boss["health"] <= 0:
-                            msg = "ZWYCIĘSTWO!"
-                            color = GREEN
-                        else:
-                            msg = "PORAŻKA!"
-                            color = RED
-                        
-                        end_text = font.render(msg, True, color)
-                        end_rect = end_text.get_rect(center=(WIDTH // 2, HEIGHT // 2))
-                        screen.blit(end_text, end_rect)
-                
-                pygame.display.flip()
-                clock.tick(60)
-                await asyncio.sleep(0.001)
-    
-    asyncio.run(run_game())
 
-# Font dla UI
-tiny_font = pygame.font.SysFont("Arial", 14)
-GRAY = (100, 100, 100)
+class Button:
+    def __init__(self, x, y, width, height, text, color=BLUE, hover_color=GREEN):
+        self.rect = pygame.Rect(x, y, width, height)
+        self.text = text
+        self.color = color
+        self.hover_color = hover_color
+        self.is_hovered = False
+
+    def draw(self, surface):
+        color = self.hover_color if self.is_hovered else self.color
+        pygame.draw.rect(surface, color, self.rect)
+        pygame.draw.rect(surface, BLACK, self.rect, 2)
+        text_surf = small_font.render(self.text, True, BLACK)
+        text_rect = text_surf.get_rect(center=self.rect.center)
+        surface.blit(text_surf, text_rect)
+
+    def check_hover(self, mouse_pos):
+        self.is_hovered = self.rect.collidepoint(mouse_pos)
+
+    def is_clicked(self, mouse_pos, mouse_click):
+        return self.rect.collidepoint(mouse_pos) and mouse_click
+
 
 def main():
-    print("🎮 Miziewicz Multiplayer Client")
-    print("=====================================")
-    print("Podaj dane serwera:")
-    
-    # Domyślnie localhost
-    server_ip = input("IP serwera (domyślnie localhost): ").strip() or "localhost"
-    server_port = int(input("Port serwera (domyślnie 5000): ").strip() or "5000")
-    player_name = input("Twoja nazwa gracza: ").strip() or "Player"
-    
-    print(f"\n⏳ Łączenie z {server_ip}:{server_port}...")
-    print("Wciśnij ESC w grze, aby zakończyć.\n")
-    
-    try:
-        start_multiplayer_game(server_ip, server_port, player_name)
-    except Exception as e:
-        print(f"❌ Błąd: {e}")
-    finally:
-        pygame.quit()
-        sys.exit()
-=======
-    last_shot_time = 0
-    shoot_delay = 200  # Opóźnienie między strzałami w milisekundach
+    global music_volume, sound_volume
+    state = MENU
 
-    running = True
+    # Przyciski menu
+    start_button = Button(WIDTH // 2 - 100, HEIGHT // 2 - 50, 200, 50, "Start Game")
+    settings_button = Button(WIDTH // 2 - 100, HEIGHT // 2, 200, 50, "Settings")
+    quit_button = Button(WIDTH // 2 - 100, HEIGHT // 2 + 50, 200, 50, "Quit")
+
+    # Przyciski settings
+    music_up_button = Button(WIDTH // 2 - 100, HEIGHT // 2 - 80, 50, 50, "+")
+    music_down_button = Button(WIDTH // 2, HEIGHT // 2 - 80, 50, 50, "-")
+    sound_up_button = Button(WIDTH // 2 - 100, HEIGHT // 2, 50, 50, "+")
+    sound_down_button = Button(WIDTH // 2, HEIGHT // 2, 50, 50, "-")
+    back_button = Button(WIDTH // 2 - 100, HEIGHT // 2 + 100, 200, 50, "Back")
+
+    # Zmienne gry
+    player = None
+    boss = None
+    bullets = []
+    last_shot_time = 0
+    shoot_delay = 200
     game_over = False
     message = ""
+    last_hit_sound_time = 0
+    hit_sound_delay = 500  # 0.5 sekundy
 
+    running = True
     while running:
         current_time = pygame.time.get_ticks()
         screen.fill(WHITE)
+        mouse_pos = pygame.mouse.get_pos()
+        mouse_click = False
 
         # Obsługa zdarzeń
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                mouse_click = True
 
-        if not game_over:
-            keys = pygame.key.get_pressed()
-            player.move(keys)
-            
-            # Strzelanie (Spacja)
-            if keys[pygame.K_SPACE] and current_time - last_shot_time > shoot_delay:
-                bullets.append(Bullet(player.x + player.size // 2, player.y))
-                last_shot_time = current_time
-                if shoot_sound:
-                    shoot_sound.play()
+        if state == MENU:
+            # Rysowanie menu
+            title = font.render("MIZIEWICZ THE GAME", True, BLACK)
+            title_rect = title.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 150))
+            screen.blit(title, title_rect)
 
-            boss.update(player.x, player.y)
+            start_button.check_hover(mouse_pos)
+            start_button.draw(screen)
+            settings_button.check_hover(mouse_pos)
+            settings_button.draw(screen)
+            quit_button.check_hover(mouse_pos)
+            quit_button.draw(screen)
 
-            # Aktualizacja pocisków
-            for bullet in bullets[:]:
-                bullet.update()
-                if bullet.y < 0:
-                    bullets.remove(bullet)
-                elif bullet.rect.colliderect(boss.rect):
-                    boss.health -= 10
-                    play_random_sound(hit_sounds)
-                    if bullet in bullets:
-                        bullets.remove(bullet)
-
-            # Kolizja Moćka z Miziewiczem
-            if player.rect.colliderect(boss.rect):
-                player.health -= 2
-                play_random_sound(player_hit_sounds)
-
-            # Sprawdzenie warunków wygranej / przegranej
-            if boss.health <= 0:
-                game_over = True
-                message = "WYGRAŁEŚ! POKONAŁEŚ GRUBEGO MOĆKA!"
-                if mocko_death_sound:
-                    mocko_death_sound.play()
-            elif player.health <= 0:
-                game_over = True
-                message = "PRZEGRAŁEŚ! GRUBY MOĆKO CIĘ ZMIAŻDŻYŁ!"
-                if miziewicz_death_sound:
-                    miziewicz_death_sound.play()
-
-        # Rysowanie elementów gry
-        player.draw(screen)
-        if boss.health > 0:
-            boss.draw(screen)
-            
-        for bullet in bullets:
-            bullet.draw(screen)
-
-        if ammo_img:
-            screen.blit(ammo_img, (20, 20))
-            ammo_label = small_font.render("STRZAŁY", True, BLACK)
-            screen.blit(ammo_label, (50, 20))
-
-        # Wyświetlanie napisów końcowych
-        if game_over:
-            text = font.render(message, True, BLACK)
-            text_rect = text.get_rect(center=(WIDTH // 2, HEIGHT // 2))
-            screen.blit(text, text_rect)
-            
-            restart_text = small_font.render("Naciśnij 'R', aby zagrać ponownie", True, BLACK)
-            restart_rect = restart_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 + 50))
-            screen.blit(restart_text, restart_rect)
-            
-            keys = pygame.key.get_pressed()
-            if keys[pygame.K_r]:
+            if start_button.is_clicked(mouse_pos, mouse_click):
+                state = GAME
                 player = Miziewicz()
                 boss = GrubyMocko()
                 bullets = []
                 last_shot_time = 0
                 game_over = False
                 message = ""
+            elif settings_button.is_clicked(mouse_pos, mouse_click):
+                state = SETTINGS
+            elif quit_button.is_clicked(mouse_pos, mouse_click):
+                running = False
+
+        elif state == SETTINGS:
+            # Rysowanie settings
+            title = font.render("AUDIO SETTINGS", True, BLACK)
+            title_rect = title.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 150))
+            screen.blit(title, title_rect)
+
+            music_label = small_font.render(f"Music Volume: {int(music_volume * 100)}%", True, BLACK)
+            screen.blit(music_label, (WIDTH // 2 - 300, HEIGHT // 2 - 110))
+            music_up_button.check_hover(mouse_pos)
+            music_up_button.draw(screen)
+            music_down_button.check_hover(mouse_pos)
+            music_down_button.draw(screen)
+
+            sound_label = small_font.render(f"Sound Volume: {int(sound_volume * 100)}%", True, BLACK)
+            screen.blit(sound_label, (WIDTH // 2 - 300, HEIGHT // 2 + 10))
+            sound_up_button.check_hover(mouse_pos)
+            sound_up_button.draw(screen)
+            sound_down_button.check_hover(mouse_pos)
+            sound_down_button.draw(screen)
+
+            back_button.check_hover(mouse_pos)
+            back_button.draw(screen)
+
+            if music_up_button.is_clicked(mouse_pos, mouse_click):
+                music_volume = min(1.0, music_volume + 0.1)
+                pygame.mixer.music.set_volume(music_volume)
+            elif music_down_button.is_clicked(mouse_pos, mouse_click):
+                music_volume = max(0.0, music_volume - 0.1)
+                pygame.mixer.music.set_volume(music_volume)
+            elif sound_up_button.is_clicked(mouse_pos, mouse_click):
+                sound_volume = min(1.0, sound_volume + 0.1)
+            elif sound_down_button.is_clicked(mouse_pos, mouse_click):
+                sound_volume = max(0.0, sound_volume - 0.1)
+            elif back_button.is_clicked(mouse_pos, mouse_click):
+                state = MENU
+
+        elif state == GAME:
+            if not game_over:
+                keys = pygame.key.get_pressed()
+                player.move(keys)
+                
+                # Strzelanie (Spacja)
+                if keys[pygame.K_SPACE] and current_time - last_shot_time > shoot_delay:
+                    bullets.append(Bullet(player.x + player.size // 2, player.y))
+                    last_shot_time = current_time
+                    if shoot_sound:
+                        shoot_sound.set_volume(sound_volume)
+                        shoot_sound.play()
+
+                boss.update(player.x, player.y)
+
+                # Aktualizacja pocisków
+                for bullet in bullets[:]:
+                    bullet.update()
+                    if bullet.y < 0:
+                        bullets.remove(bullet)
+                    elif bullet.rect.colliderect(boss.rect):
+                        boss.health -= 10
+                        play_random_sound(hit_sounds)
+                        if bullet in bullets:
+                            bullets.remove(bullet)
+
+                # Kolizja Moćka z Miziewiczem
+                if player.rect.colliderect(boss.rect):
+                    player.health -= 2
+                    if current_time - last_hit_sound_time > hit_sound_delay:
+                        play_random_sound(player_hit_sounds)
+                        last_hit_sound_time = current_time
+
+                # Sprawdzenie warunków wygranej / przegranej
+                if boss.health <= 0:
+                    game_over = True
+                    message = "WYGRAŁEŚ! POKONAŁEŚ GRUBEGO MOĆKA!"
+                    pygame.mixer.music.stop()
+                    if win_sound:
+                        win_sound.set_volume(sound_volume)
+                        win_sound.play()
+                    if mocko_death_sound:
+                        mocko_death_sound.set_volume(sound_volume)
+                        mocko_death_sound.play()
+                elif player.health <= 0:
+                    game_over = True
+                    message = "PRZEGRAŁEŚ! GRUBY MOĆKO CIĘ ZMIAŻDŻYŁ!"
+                    pygame.mixer.music.stop()
+                    if lose_sound:
+                        lose_sound.set_volume(sound_volume)
+                        lose_sound.play()
+                    if miziewicz_death_sound:
+                        miziewicz_death_sound.set_volume(sound_volume)
+                        miziewicz_death_sound.play()
+
+            # Rysowanie elementów gry
+            player.draw(screen)
+            if boss.health > 0:
+                boss.draw(screen)
+                
+            for bullet in bullets:
+                bullet.draw(screen)
+
+            # Wyświetlanie napisów końcowych
+            if game_over:
+                text = font.render(message, True, BLACK)
+                text_rect = text.get_rect(center=(WIDTH // 2, HEIGHT // 2))
+                screen.blit(text, text_rect)
+                
+                restart_text = small_font.render("Naciśnij 'R', aby zagrać ponownie", True, BLACK)
+                restart_rect = restart_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 + 50))
+                screen.blit(restart_text, restart_rect)
+                
+                keys = pygame.key.get_pressed()
+                if keys[pygame.K_r]:
+                    player = Miziewicz()
+                    boss = GrubyMocko()
+                    bullets = []
+                    last_shot_time = 0
+                    game_over = False
+                    message = ""
+                    last_hit_sound_time = 0
+                    pygame.mixer.music.play(-1)
 
         pygame.display.flip()
         clock.tick(60)
 
     pygame.quit()
     sys.exit()
->>>>>>> parent of 3f5509b (Miziewicz 1.0.1)
 
 if __name__ == "__main__":
     main()
